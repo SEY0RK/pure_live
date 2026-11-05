@@ -57,15 +57,18 @@ class LivePlayLayout extends StatelessWidget {
     this.isPortraitSource = false,
     this.sourceAspectRatio = 16 / 9,
     this.splitBySourceOrientation = false,
-    this.landscapeDanmakuHeight = defaultLandscapeDanmakuHeight,
+    this.danmakuPanelHeight = defaultDanmakuPanelHeight,
   });
 
-  /// Default floor for the danmaku list in the stacked landscape topology.
-  static const double defaultLandscapeDanmakuHeight = 220;
+  /// Default floor for the danmaku list on this page.
+  static const double defaultDanmakuPanelHeight = 220;
 
-  /// Smallest list the stacked landscape topology will leave usable, even when
-  /// the configured floor is smaller or the page is very short.
-  static const double minimumLandscapeDanmakuHeight = 96;
+  /// Smallest list the layout will leave usable, even when the configured floor
+  /// is smaller or the page is very short.
+  static const double minimumDanmakuPanelHeight = 96;
+
+  /// The quality selector row lives inside the panel above the list.
+  static const double _resolutionReserve = 48;
 
   /// Width the side panel keeps in the portrait-source split.
   static const double minimumDesktopSplitPanelWidth = 240;
@@ -87,8 +90,11 @@ class LivePlayLayout extends StatelessWidget {
   /// long-standing side panel.
   final bool splitBySourceOrientation;
 
-  /// Height reserved for the danmaku list under a stacked landscape source.
-  final double landscapeDanmakuHeight;
+  /// Minimum height the danmaku list keeps in this posture.
+  ///
+  /// The caller passes the value configured for the current window: the
+  /// unfolded inner screen and the folded outer screen are tuned separately.
+  final double danmakuPanelHeight;
 
   double get _sourceAspectRatio =>
       sourceAspectRatio.isFinite && sourceAspectRatio > 0 ? sourceAspectRatio : 16 / 9;
@@ -119,13 +125,31 @@ class LivePlayLayout extends StatelessWidget {
     );
   }
 
+  /// Height the danmaku list keeps at minimum on this page.
+  ///
+  /// The floor stops the list from being squeezed to nothing in a short window.
+  /// Whatever height the video does not need goes to the list, so the video
+  /// never floats inside an unused black band.
+  double _panelFloor(double availableHeight) {
+    final height = availableHeight.isFinite ? availableHeight : 0.0;
+    final configured = danmakuPanelHeight.isFinite ? danmakuPanelHeight : defaultDanmakuPanelHeight;
+    // Never take more than 60% of a short page: an unclamped floor would invert
+    // the problem and starve the video instead.
+    final upperBound = math.max(minimumDanmakuPanelHeight, height * 0.6);
+    return configured.clamp(minimumDanmakuPanelHeight, upperBound).toDouble();
+  }
+
+  double _videoHeightCap(double availableHeight) =>
+      math.max(0.0, availableHeight - _panelFloor(availableHeight) - _resolutionReserve);
+
   Widget _buildPortraitLayout(BuildContext context, BoxConstraints constraints) {
     final panelColor = Theme.of(context).colorScheme.surface;
+    final availableHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 0.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildVideo(context, constraints),
+        _buildVideo(context, constraints, maxHeight: _videoHeightCap(availableHeight)),
         Expanded(
           child: ColoredBox(
             color: panelColor,
@@ -142,28 +166,28 @@ class LivePlayLayout extends StatelessWidget {
     );
   }
 
-  /// Landscape programme in a large window: stack the list under the video and
-  /// keep a guaranteed floor for it, so a rotated wide-and-shallow window
-  /// cannot starve the list the way the 16:9 box used to.
+  /// Landscape programme in a large window: the video takes exactly the height
+  /// its own aspect needs and the list absorbs everything left over.
+  ///
+  /// The previous version handed the whole leftover height to the video area and
+  /// centred a fixed-aspect box inside it, so every pixel the 16:9 picture did
+  /// not need showed up as a black band above and below it.
   Widget _buildLandscapeStack(BuildContext context, BoxConstraints constraints) {
     final panelColor = Theme.of(context).colorScheme.surface;
     final availableHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 0.0;
-    final configured = landscapeDanmakuHeight.isFinite ? landscapeDanmakuHeight : defaultLandscapeDanmakuHeight;
-    // Never take more than 60% of a short page: an unclamped floor would invert
-    // the problem and starve the video instead.
-    final upperBound = math.max(minimumLandscapeDanmakuHeight, availableHeight * 0.6);
-    final reserved = configured.clamp(minimumLandscapeDanmakuHeight, upperBound).toDouble();
+    final naturalHeight = constraints.maxWidth / _sourceAspectRatio;
+    final videoHeight = math.min(naturalHeight, _videoHeightCap(availableHeight));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
+        SizedBox(
+          height: videoHeight,
           child: Center(
             child: AspectRatio(aspectRatio: _sourceAspectRatio, child: video),
           ),
         ),
-        SizedBox(
-          height: reserved,
+        Expanded(
           child: ColoredBox(
             color: panelColor,
             child: Column(
@@ -225,14 +249,19 @@ class LivePlayLayout extends StatelessWidget {
     );
   }
 
-  Widget _buildVideo(BuildContext context, BoxConstraints constraints) {
+  Widget _buildVideo(BuildContext context, BoxConstraints constraints, {double? maxHeight}) {
     switch (layoutMode) {
       case PortraitLayoutMode.balanced:
+        final naturalHeight = constraints.maxWidth / (16 / 9);
+        final height = maxHeight == null ? naturalHeight : math.min(naturalHeight, maxHeight);
         return SizedBox(
           width: constraints.maxWidth,
-          child: AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ColoredBox(color: Colors.black, child: video),
+          height: height,
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: ColoredBox(color: Colors.black, child: video),
+            ),
           ),
         );
 
@@ -244,11 +273,11 @@ class LivePlayLayout extends StatelessWidget {
         );
 
       case PortraitLayoutMode.compatibility:
-        return _buildCompatibilityVideo(constraints);
+        return _buildCompatibilityVideo(constraints, maxHeight: maxHeight);
     }
   }
 
-  Widget _buildCompatibilityVideo(BoxConstraints constraints) {
+  Widget _buildCompatibilityVideo(BoxConstraints constraints, {double? maxHeight}) {
     final player = GlobalPlayerService.instance.player;
 
     return StreamBuilder<List<int?>>(
@@ -272,9 +301,10 @@ class LivePlayLayout extends StatelessWidget {
           );
         }
 
-        final maxHeight = constraints.maxHeight * 0.6;
+        final panelmaxHeight = constraints.maxHeight * 0.6;
         final calculatedHeight = width / aspectRatio;
-        final height = calculatedHeight > maxHeight ? maxHeight : calculatedHeight;
+        final naturalHeight = calculatedHeight > panelmaxHeight ? panelmaxHeight : calculatedHeight;
+        final height = maxHeight == null ? naturalHeight : math.min(naturalHeight, maxHeight);
 
         return SizedBox(
           width: width,
@@ -356,6 +386,9 @@ class LivePlayContent extends StatelessWidget {
             isPortraitSource: aspectRatio < 1,
             sourceAspectRatio: aspectRatio,
             splitBySourceOrientation: PlatformUtils.isAndroid,
+            danmakuPanelHeight: wideWindow
+                ? SettingsService.to.player.innerScreenDanmakuHeight.v
+                : SettingsService.to.player.outerScreenDanmakuHeight.v,
             // A wide window owns its video box too: both topologies lay the
             // surface out from the source aspect, so it has to fill the box
             // instead of adding its own 16:9 frame.

@@ -1436,6 +1436,8 @@
     "portrait_layout_immersive": "Immersive",
     "portrait_layout_compatibility": "Compatible 16:9",
     "portrait_presentation_group": "Fullscreen, PiP and danmaku",
+  "inner_screen_danmaku_height": "Danmaku panel height (inner screen)",
+  "outer_screen_danmaku_height": "Danmaku panel height (outer screen)",
     "portrait_fullscreen_policy": "Fullscreen orientation",
     "portrait_fullscreen_policy_desc": "Large and multi-window displays remain adaptive; phones may follow the source",
     "portrait_fullscreen_follow_source": "Follow source (recommended)",

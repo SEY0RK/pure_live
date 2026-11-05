@@ -110,6 +110,15 @@ class PlayerSettingsController extends GetxController {
 
   final RxDouble portraitCustomHeight = hiveDouble('portraitCustomHeight', 0.0);
 
+  /// Minimum height the danmaku list keeps on the unfolded inner screen.
+  ///
+  /// A foldable's inner and outer screens give the list very different room, so
+  /// the two postures are tuned separately instead of sharing one value.
+  final RxDouble innerScreenDanmakuHeight = hiveDouble('innerScreenDanmakuHeight', 220.0);
+
+  /// Minimum height the danmaku list keeps on the folded outer screen.
+  final RxDouble outerScreenDanmakuHeight = hiveDouble('outerScreenDanmakuHeight', 220.0);
+
   void changePortraitCustomHeight(double height) {
     portraitCustomHeight.v = height.clamp(0.0, double.infinity);
   }

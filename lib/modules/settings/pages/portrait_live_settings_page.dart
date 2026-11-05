@@ -87,6 +87,34 @@ class PortraitLiveSettingsPage extends StatelessWidget {
           const SizedBox(height: 20),
           context.buildGroupTitle(i18n('portrait_presentation_group')),
           context.buildModernCard([
+            // Unfolded inner screen and folded outer screen give the list very
+            // different room, so each posture keeps its own floor.
+            Obx(
+              () => context.buildSliderTile(
+                context,
+                icon: Icons.vertical_split_outlined,
+                title: i18n('inner_screen_danmaku_height'),
+                value: settings.innerScreenDanmakuHeight.v,
+                min: 120.0,
+                max: 480.0,
+                displayValue: '${settings.innerScreenDanmakuHeight.v.round()} px',
+                onChanged: (val) =>
+                    settings.innerScreenDanmakuHeight.v = double.parse(val.toStringAsFixed(0)),
+              ),
+            ),
+            Obx(
+              () => context.buildSliderTile(
+                context,
+                icon: Icons.stay_current_portrait_rounded,
+                title: i18n('outer_screen_danmaku_height'),
+                value: settings.outerScreenDanmakuHeight.v,
+                min: 120.0,
+                max: 480.0,
+                displayValue: '${settings.outerScreenDanmakuHeight.v.round()} px',
+                onChanged: (val) =>
+                    settings.outerScreenDanmakuHeight.v = double.parse(val.toStringAsFixed(0)),
+              ),
+            ),
             context.buildTile(
               icon: Icons.restart_alt_rounded,
               title: i18n('portrait_reset_settings'),
@@ -96,6 +124,8 @@ class PortraitLiveSettingsPage extends StatelessWidget {
                 settings.resetPortraitLayoutMode();
                 settings.resetPortraitDanmakuMode();
                 settings.resetPortraitVideoHeight();
+                settings.innerScreenDanmakuHeight.v = 220.0;
+                settings.outerScreenDanmakuHeight.v = 220.0;
                 ToastUtil.show(i18n('settings_reset_done'));
               },
             ),
