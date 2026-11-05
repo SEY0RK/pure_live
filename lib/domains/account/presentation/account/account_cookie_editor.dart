@@ -39,6 +39,7 @@ class AccountCookieEditorPage extends StatefulWidget {
     required this.onSave,
     super.key,
     this.extraFields = const <Widget>[],
+    this.extraActions = const <Widget>[],
     this.tipBody,
   });
 
@@ -53,6 +54,12 @@ class AccountCookieEditorPage extends StatefulWidget {
   /// page cookie, so they cannot be part of the pasted string and need fields of
   /// their own.
   final List<Widget> extraFields;
+
+  /// Extra buttons a platform needs next to the save action.
+  ///
+  /// Douyin offers a built-in browser that opens the platform's own login page
+  /// and fills the cookie in, so the field is not the only way in.
+  final List<Widget> extraActions;
 
   /// Rich replacement for [tipText] inside the same banner.
   ///
@@ -189,6 +196,10 @@ class _AccountCookieEditorPageState extends State<AccountCookieEditorPage> {
                             decoration: accountCookieFieldDecoration(theme, hintText: widget.hintText),
                           ),
                           for (final field in widget.extraFields) ...<Widget>[const SizedBox(height: 12), field],
+                          for (final action in widget.extraActions) ...<Widget>[
+                            const SizedBox(height: 12),
+                            action,
+                          ],
                           const SizedBox(height: 16),
                           FilledButton.icon(
                             key: const ValueKey('account-cookie-save'),

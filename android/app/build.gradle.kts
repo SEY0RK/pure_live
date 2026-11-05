@@ -9,7 +9,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-apply(plugin = "com.google.gms.google-services")
+// Coexist candidate switch: a debug-signed build cannot replace the officially
+// signed package, so the candidate appends ".candidate" to the application id
+// instead. `android/app/google-services.json` only registers the production
+// package name, and the google-services plugin fails the build with
+// "No matching client found" for any other id, so the plugin is skipped for the
+// candidate. Firebase still initialises at runtime from the hard-coded
+// DefaultFirebaseOptions in lib/firebase_options.dart.
+val candidateBuild = (System.getenv("PURELIVE_CANDIDATE") ?: "").toBoolean()
+
+if (!candidateBuild) {
+    apply(plugin = "com.google.gms.google-services")
+}
 
 // 加载签名配置
 val keystorePropertiesFile = rootProject.file("key.properties")
@@ -46,7 +57,7 @@ extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
         targetCompatibility = JavaVersion.VERSION_17
     }
     defaultConfig {
-        applicationId = "com.mystyle.purelive"
+        applicationId = if (candidateBuild) "com.mystyle.purelive.candidate" else "com.mystyle.purelive"
         // ffmpeg_kit_extended_flutter 0.6.2 ships native binaries with an
         // Android API 26 floor. Advertising an older app floor lets installs
         // succeed on devices where the recording engine cannot be loaded.
@@ -55,7 +66,7 @@ extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
         targetSdk = 37
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["appLabel"] = "纯粹直播"
+        manifestPlaceholders["appLabel"] = if (candidateBuild) "纯粹直播 测试" else "纯粹直播"
     }
 
     signingConfigs {
