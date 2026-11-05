@@ -78,6 +78,21 @@ class PortraitLiveSettingsPage extends StatelessWidget {
               ),
             ),
             Obx(
+              () => context.buildSliderTile(
+                context,
+                icon: Icons.stay_current_portrait_rounded,
+                title: i18n('outer_screen_danmaku_height'),
+                subtitle: i18n('outer_screen_danmaku_height_desc'),
+                value: settings.outerScreenDanmakuHeight.v,
+                min: 120.0,
+                max: 480.0,
+                displayValue: '${settings.outerScreenDanmakuHeight.v.round()} px',
+                onChanged: (val) {
+                  settings.outerScreenDanmakuHeight.v = double.parse(val.toStringAsFixed(0));
+                },
+              ),
+            ),
+            Obx(
               () => context.buildTile(
                 icon: Icons.fullscreen_rounded,
                 title: i18n('portrait_fullscreen_policy'),

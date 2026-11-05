@@ -45,14 +45,15 @@ class PlayerSettingsController extends GetxController {
   final RxInt videoFitIndex = hiveInt('videoFitIndex', 0);
   final RxString videoPlayerKey = hiveString('videoPlayerKey', _defaultVideoPlayerKey);
 
-  /// Height reserved for the danmaku list when a landscape programme stacks
-  /// under the video in an unfolded window.
+  /// Minimum height the danmaku list keeps in an unfolded (inner-screen) window.
   ///
-  /// The source's own 16:9 box spans the full width, so a 90° rotation makes
-  /// the video claim almost the whole usable height and leaves the list a few
-  /// pixels. The floor is user configurable because the usable height differs
-  /// a lot between folded, unfolded and rotated postures.
+  /// The video takes only the height its own aspect needs and the list absorbs
+  /// the rest, so this value is a floor rather than an exact height. The folded
+  /// outer screen is tuned separately through [outerScreenDanmakuHeight].
   final RxDouble landscapeDanmakuHeight = hiveDouble('landscapeDanmakuHeight', 220.0);
+
+  /// Minimum height the danmaku list keeps on the folded outer screen.
+  final RxDouble outerScreenDanmakuHeight = hiveDouble('outerScreenDanmakuHeight', 220.0);
 
   final RxString preferResolution = hiveString('preferResolution', PlayerConsts.resolutions.first);
   final RxString preferResolutionCellular = hiveString('preferResolutionCellular', PlayerConsts.resolutions.first);

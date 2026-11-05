@@ -102,6 +102,9 @@ class LivePlayNormalLayout extends StatelessWidget {
   /// Width the side panel keeps in the portrait-source split.
   static const double minimumDesktopSplitPanelWidth = 240;
 
+  /// Space the quality selector row keeps above the list.
+  static const double _resolutionReserve = 56;
+
   final Widget video;
   final Widget resolution;
   final Widget danmaku;
@@ -157,7 +160,26 @@ class LivePlayNormalLayout extends StatelessWidget {
     );
   }
 
+  /// Height the danmaku list keeps at minimum in this posture.
+  ///
+  /// The caller passes the value configured for the current window, so the
+  /// unfolded inner screen and the folded outer screen are tuned separately.
+  double _panelFloor(double availableHeight) {
+    final height = availableHeight.isFinite ? availableHeight : 0.0;
+    final configured = landscapeDanmakuHeight.isFinite ? landscapeDanmakuHeight : defaultLandscapeDanmakuHeight;
+    // Never take more than 60% of a short page: an unclamped floor would invert
+    // the problem and starve the video instead.
+    final upperBound = math.max(minimumLandscapeDanmakuHeight, height * 0.6);
+    return configured.clamp(minimumLandscapeDanmakuHeight, upperBound).toDouble();
+  }
+
+  double _videoHeightCap(double availableHeight) =>
+      math.max(0.0, availableHeight - _panelFloor(availableHeight) - _resolutionReserve);
+
   Widget _buildPortraitStack(BuildContext context, BoxConstraints constraints) {
+    final availableHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 0.0;
+    final cap = _videoHeightCap(availableHeight);
+
     if (portraitLayoutMode == PortraitLayoutMode.compatibility) {
       // 「兼容 16:9」owns the video height itself instead of falling back to a
       // fixed 16:9 box, which is what shrank a portrait programme into a
@@ -165,6 +187,7 @@ class LivePlayNormalLayout extends StatelessWidget {
       return _buildStackedColumn(
         context,
         key: 'live-play-portrait-stack',
+        videoMaxHeight: cap,
         videoArea: SizedBox(
           key: const ValueKey('live-play-compatibility-video'),
           width: constraints.maxWidth,
@@ -187,14 +210,33 @@ class LivePlayNormalLayout extends StatelessWidget {
         onEnterPortraitFullscreen: onEnterPortraitFullscreen,
       );
     }
-    return _buildStackedColumn(context, key: 'live-play-portrait-stack', videoArea: video);
+    return _buildStackedColumn(
+      context,
+      key: 'live-play-portrait-stack',
+      videoMaxHeight: cap,
+      videoArea: video,
+    );
   }
 
-  Widget _buildStackedColumn(BuildContext context, {required String key, required Widget videoArea}) {
+  Widget _buildStackedColumn(
+    BuildContext context, {
+    required String key,
+    required Widget videoArea,
+    double? videoMaxHeight,
+  }) {
+    Widget area = videoArea;
+    if (videoMaxHeight != null) {
+      // The list keeps its floor; the video gives the space back when it is
+      // taller than that floor allows.
+      area = ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: videoMaxHeight),
+        child: Center(child: videoArea),
+      );
+    }
     return Column(
       key: ValueKey(key),
       children: [
-        videoArea,
+        area,
         resolution,
         const Divider(height: 1),
         Expanded(
@@ -205,6 +247,12 @@ class LivePlayNormalLayout extends StatelessWidget {
     );
   }
 
+  /// Landscape programme in a large window: the video takes exactly the height
+  /// its own aspect needs and the list absorbs everything left over.
+  ///
+  /// The previous version handed the whole leftover height to the video area and
+  /// centred a fixed-aspect box inside it, so every pixel the 16:9 picture did
+  /// not need showed up as a black band above and below it.
   Widget _buildLandscapeStack(BuildContext context, BoxConstraints constraints) {
     final availableHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 0.0;
     final configured = landscapeDanmakuHeight.isFinite ? landscapeDanmakuHeight : defaultLandscapeDanmakuHeight;
@@ -212,22 +260,23 @@ class LivePlayNormalLayout extends StatelessWidget {
     // a rotated unfolded window is wide and shallow, so an unclamped floor
     // would invert the problem and starve the video instead.
     final upperBound = math.max(minimumLandscapeDanmakuHeight, availableHeight * 0.6);
-    final reserved = configured.clamp(minimumLandscapeDanmakuHeight, upperBound);
+    final floor = configured.clamp(minimumLandscapeDanmakuHeight, upperBound).toDouble();
+    final naturalHeight = constraints.maxWidth / _sourceAspectRatio;
+    final videoHeight = math.min(naturalHeight, math.max(0.0, availableHeight - floor - _resolutionReserve));
+
     return Column(
       key: const ValueKey('live-play-landscape-stack'),
       children: [
-        // The video keeps the leftover height and is laid out from the source
-        // aspect, so a wide window no longer lets the 16:9 box claim the page.
-        Expanded(
+        SizedBox(
+          height: videoHeight,
           child: Center(
             child: AspectRatio(aspectRatio: _sourceAspectRatio, child: video),
           ),
         ),
         resolution,
         const Divider(height: 1),
-        SizedBox(
+        Expanded(
           key: const ValueKey('live-play-landscape-danmaku'),
-          height: reserved,
           child: ColoredBox(color: Theme.of(context).colorScheme.surface, child: danmaku),
         ),
       ],
@@ -772,7 +821,9 @@ class LivePlayContent extends StatelessWidget {
             adaptivePortraitHeight: settings.enablePortraitStreamAdaptation.v && settings.portraitAdaptiveHeight.v,
             portraitLayoutMode: layoutMode,
             splitBySourceOrientation: PlatformUtils.isAndroid,
-            landscapeDanmakuHeight: settings.landscapeDanmakuHeight.v,
+            landscapeDanmakuHeight: useWideWindowFrame
+                ? settings.landscapeDanmakuHeight.v
+                : settings.outerScreenDanmakuHeight.v,
             onEnterLandscapeFullscreen: () {
               final videoController = controller.state.value.player.videoController;
               if (videoController != null) unawaited(videoController.enterLandscapeFullScreen());
