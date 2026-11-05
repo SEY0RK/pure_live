@@ -6,7 +6,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-apply(plugin = "com.google.gms.google-services")
+// Coexist candidate switch: a debug-signed build cannot replace the officially
+// signed package, so the candidate appends ".candidate" to the application id
+// instead. `android/app/google-services.json` only registers the production
+// package name, and the google-services plugin fails the build with
+// "No matching client found" for any other id, so the plugin is skipped for the
+// candidate. Firebase still initialises at runtime from the hard-coded
+// DefaultFirebaseOptions in lib/firebase_options.dart.
+val candidateBuild = (System.getenv("PURELIVE_CANDIDATE") ?: "").toBoolean()
+
+if (!candidateBuild) {
+    apply(plugin = "com.google.gms.google-services")
+}
 
 val keystorePropertiesFile = rootProject.file("key.properties")
 val keystoreProperties = Properties().apply {
@@ -46,13 +57,13 @@ extensions.configure<com.android.build.api.dsl.ApplicationExtension> {
     }
 
     defaultConfig {
-        applicationId = "com.mystyle.purelive"
+        applicationId = if (candidateBuild) "com.mystyle.purelive.candidate" else "com.mystyle.purelive"
         minSdk = 26
         multiDexEnabled = true
         targetSdk = 37
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["appLabel"] = "纯粹直播"
+        manifestPlaceholders["appLabel"] = if (candidateBuild) "纯粹直播 测试" else "纯粹直播"
     }
 
     signingConfigs {

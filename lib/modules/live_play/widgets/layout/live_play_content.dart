@@ -1,5 +1,8 @@
+import 'dart:math' as math;
+
 import 'package:rxdart/rxdart.dart';
 import 'package:pure_live/common/index.dart';
+import 'package:pure_live/common/global/platform_utils.dart';
 import 'package:pure_live/modules/live_play/states/ui_state.dart';
 import 'package:pure_live/player/core/portrait_stream_support.dart';
 import 'package:pure_live/modules/live_play/controllers/player_state.dart';
@@ -10,10 +13,37 @@ import 'package:pure_live/modules/live_play/widgets/layout/live_play_header.dart
 import 'package:pure_live/modules/live_play/controllers/live_play_controller.dart';
 import 'package:pure_live/modules/live_play/widgets/resolution_selector/resolutions_row.dart';
 
-enum LivePlayLayoutType { portrait, desktop }
+enum LivePlayLayoutType { portrait, landscapeStack, desktop }
 
-LivePlayLayoutType resolveLivePlayLayoutType(double width) {
-  return width <= 680 ? LivePlayLayoutType.portrait : LivePlayLayoutType.desktop;
+/// Width up to which the room stacks video above the danmaku panel.
+const double livePlayPortraitStackMaxWidth = 680;
+
+/// Picks the page topology from the window state together with the live
+/// source's own orientation.
+///
+/// A phone-sized window always keeps the single stacked column. A large window
+/// keeps the side panel only for a portrait programme: a landscape programme
+/// leaves most of that panel's height unused, so it stacks the same way a
+/// folded phone does. The orientation comes from the decoded frame size, never
+/// from the device's physical rotation, and the window width is the only
+/// window-state signal available (the repository has no hinge/fold API).
+LivePlayLayoutType resolveLivePlayLayoutType({
+  required double width,
+  required bool isPortraitSource,
+  bool splitBySourceOrientation = false,
+}) {
+  if (width <= livePlayPortraitStackMaxWidth) return LivePlayLayoutType.portrait;
+  if (splitBySourceOrientation && !isPortraitSource) return LivePlayLayoutType.landscapeStack;
+  return LivePlayLayoutType.desktop;
+}
+
+/// Source aspect with a safe fallback for unknown or degenerate frame sizes.
+double resolveLivePlayAspectRatio(int? width, int? height) {
+  if (width == null || height == null || width <= 0 || height <= 0) {
+    return 16 / 9;
+  }
+  final ratio = width / height;
+  return ratio.isFinite && ratio > 0 ? ratio : 16 / 9;
 }
 
 class LivePlayLayout extends StatelessWidget {
@@ -24,13 +54,44 @@ class LivePlayLayout extends StatelessWidget {
     required this.danmaku,
     required this.layoutMode,
     this.showPanel = true,
+    this.isPortraitSource = false,
+    this.sourceAspectRatio = 16 / 9,
+    this.splitBySourceOrientation = false,
+    this.landscapeDanmakuHeight = defaultLandscapeDanmakuHeight,
   });
+
+  /// Default floor for the danmaku list in the stacked landscape topology.
+  static const double defaultLandscapeDanmakuHeight = 220;
+
+  /// Smallest list the stacked landscape topology will leave usable, even when
+  /// the configured floor is smaller or the page is very short.
+  static const double minimumLandscapeDanmakuHeight = 96;
+
+  /// Width the side panel keeps in the portrait-source split.
+  static const double minimumDesktopSplitPanelWidth = 240;
 
   final Widget video;
   final Widget resolution;
   final Widget danmaku;
   final PortraitLayoutMode layoutMode;
   final bool showPanel;
+
+  /// Whether the live source is taller than it is wide.
+  final bool isPortraitSource;
+
+  /// Decoded source aspect, used to size the video box in a wide window.
+  final double sourceAspectRatio;
+
+  /// Whether a large window may choose its topology from the source
+  /// orientation. Enabled on Android only, so the desktop player keeps its
+  /// long-standing side panel.
+  final bool splitBySourceOrientation;
+
+  /// Height reserved for the danmaku list under a stacked landscape source.
+  final double landscapeDanmakuHeight;
+
+  double get _sourceAspectRatio =>
+      sourceAspectRatio.isFinite && sourceAspectRatio > 0 ? sourceAspectRatio : 16 / 9;
 
   @override
   Widget build(BuildContext context) {
@@ -42,11 +103,17 @@ class LivePlayLayout extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        switch (resolveLivePlayLayoutType(constraints.maxWidth)) {
+        switch (resolveLivePlayLayoutType(
+          width: constraints.maxWidth,
+          isPortraitSource: isPortraitSource,
+          splitBySourceOrientation: splitBySourceOrientation,
+        )) {
           case LivePlayLayoutType.portrait:
             return _buildPortraitLayout(context, constraints);
+          case LivePlayLayoutType.landscapeStack:
+            return _buildLandscapeStack(context, constraints);
           case LivePlayLayoutType.desktop:
-            return _buildDesktopLayout(context);
+            return _buildDesktopLayout(context, constraints);
         }
       },
     );
@@ -75,18 +142,74 @@ class LivePlayLayout extends StatelessWidget {
     );
   }
 
-  Widget _buildDesktopLayout(BuildContext context) {
-    const panelWidth = 340.0;
+  /// Landscape programme in a large window: stack the list under the video and
+  /// keep a guaranteed floor for it, so a rotated wide-and-shallow window
+  /// cannot starve the list the way the 16:9 box used to.
+  Widget _buildLandscapeStack(BuildContext context, BoxConstraints constraints) {
     final panelColor = Theme.of(context).colorScheme.surface;
+    final availableHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 0.0;
+    final configured = landscapeDanmakuHeight.isFinite ? landscapeDanmakuHeight : defaultLandscapeDanmakuHeight;
+    // Never take more than 60% of a short page: an unclamped floor would invert
+    // the problem and starve the video instead.
+    final upperBound = math.max(minimumLandscapeDanmakuHeight, availableHeight * 0.6);
+    final reserved = configured.clamp(minimumLandscapeDanmakuHeight, upperBound).toDouble();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: Center(
+            child: AspectRatio(aspectRatio: _sourceAspectRatio, child: video),
+          ),
+        ),
+        SizedBox(
+          height: reserved,
+          child: ColoredBox(
+            color: panelColor,
+            child: Column(
+              children: [
+                resolution,
+                const Divider(height: 1),
+                Expanded(child: danmaku),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDesktopLayout(BuildContext context, BoxConstraints constraints) {
+    final panelColor = Theme.of(context).colorScheme.surface;
+    final maxWidth = constraints.maxWidth;
+    final maxHeight = constraints.maxHeight.isFinite ? constraints.maxHeight : 0.0;
+    final double videoWidth;
+
+    if (_sourceAspectRatio < 1) {
+      // A portrait programme is taller than it is wide. Deriving the video
+      // column from the source aspect keeps the picture edge-to-edge instead of
+      // centring a 9:16 strip inside a 16:9 letterbox, and the width it frees
+      // up goes to the danmaku list.
+      final byHeight = maxHeight * _sourceAspectRatio;
+      final ceiling = math.max(minimumDesktopSplitPanelWidth, maxWidth - minimumDesktopSplitPanelWidth);
+      videoWidth = byHeight.clamp(0.0, ceiling).toDouble();
+    } else {
+      videoWidth = math.max(0.0, maxWidth - 340.0);
+    }
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Expanded(
-          child: Container(color: Colors.black, child: video),
-        ),
         SizedBox(
-          width: panelWidth,
+          width: videoWidth,
+          child: Container(
+            color: Colors.black,
+            child: Center(
+              child: AspectRatio(aspectRatio: _sourceAspectRatio, child: video),
+            ),
+          ),
+        ),
+        Expanded(
           child: ColoredBox(
             color: panelColor,
             child: Column(
@@ -162,15 +285,7 @@ class LivePlayLayout extends StatelessWidget {
     );
   }
 
-  double _resolveAspectRatio(int? width, int? height) {
-    if (width == null || height == null || width <= 0 || height <= 0) {
-      return 16 / 9;
-    }
-
-    final ratio = width / height;
-
-    return ratio.isFinite && ratio > 0 ? ratio : 16 / 9;
-  }
+  double _resolveAspectRatio(int? width, int? height) => resolveLivePlayAspectRatio(width, height);
 }
 
 class LivePlayContent extends StatelessWidget {
@@ -222,19 +337,37 @@ class LivePlayContent extends StatelessWidget {
 
   Widget _buildNormalLayout(BuildContext context, {required PortraitLayoutMode layoutMode}) {
     final compactHeader = MediaQuery.sizeOf(context).width < 600;
+    final wideWindow = MediaQuery.sizeOf(context).width > livePlayPortraitStackMaxWidth;
+    final player = GlobalPlayerService.instance.player;
 
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: LivePlayHeader(controller: controller, compactHeader: compactHeader),
-      body: LivePlayLayout(
-        layoutMode: layoutMode,
-        video: LivePlayVideo(
-          controller: controller,
-          expandToParent: controller.site == Sites.iptvSite,
-        ),
-        resolution: const ResolutionsRow(),
-        danmaku: _buildDanmakuContent(),
-        showPanel: controller.site != Sites.iptvSite,
+      body: StreamBuilder<List<int?>>(
+        stream: CombineLatestStream.list([player.width, player.height]),
+        builder: (context, snapshot) {
+          final frames = snapshot.data;
+          final aspectRatio = resolveLivePlayAspectRatio(
+            frames != null && frames.isNotEmpty ? frames[0] : null,
+            frames != null && frames.length > 1 ? frames[1] : null,
+          );
+          return LivePlayLayout(
+            layoutMode: layoutMode,
+            isPortraitSource: aspectRatio < 1,
+            sourceAspectRatio: aspectRatio,
+            splitBySourceOrientation: PlatformUtils.isAndroid,
+            // A wide window owns its video box too: both topologies lay the
+            // surface out from the source aspect, so it has to fill the box
+            // instead of adding its own 16:9 frame.
+            video: LivePlayVideo(
+              controller: controller,
+              expandToParent: controller.site == Sites.iptvSite || wideWindow,
+            ),
+            resolution: const ResolutionsRow(),
+            danmaku: _buildDanmakuContent(),
+            showPanel: controller.site != Sites.iptvSite,
+          );
+        },
       ),
     );
   }
